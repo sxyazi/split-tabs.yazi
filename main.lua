@@ -196,10 +196,10 @@ local function deactivate()
 	if not dp then
 		return
 	end
+	ya.emit("tab_close", { other_pane() - 1 })
 	restore_all()
 	dp = nil
 	saved = {}
-	ya.emit("tab_close", { 1 })
 	ya.emit("app:resize", {})
 end
 
