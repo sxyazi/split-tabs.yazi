@@ -277,6 +277,11 @@ local function spl_preview()
 		-- Force-trigger the peek system for the current file since
 		-- it only auto-triggers on file change, not on area change.
 		ya.emit("peek", { 0 })
+	else
+		-- Force preview reset to clear terminal protocol images (kitty/sixel).
+		-- A different skip value bypasses the "same file" check in peek.rs,
+		-- ensuring preview.reset() runs and calls adapter.image_hide().
+		ya.emit("peek", { 99999 })
 	end
 end
 
