@@ -138,11 +138,13 @@ local function apply_dual_tab_patch()
 		end
 
 		if dp.preview and dp.preview_area then
+			-- Overlap preview 1 row up to share the pane's bottom border line.
 			local pa = dp.preview_area
-			self._children[#self._children + 1] = Overlay:new("border", pa, {
-				ui.Border(ui.Edge.ALL):area(pa),
+			local joined = ui.Rect { x = pa.x, y = pa.y - 1, w = pa.w, h = pa.h + 1 }
+			self._children[#self._children + 1] = Overlay:new("border", joined, {
+				ui.Border(ui.Edge.LEFT + ui.Edge.RIGHT + ui.Edge.BOTTOM):area(joined),
 			})
-			self._children[#self._children + 1] = Preview:new(pa:pad(ui.Pad(1, 1, 1, 1)), self._tab)
+			self._children[#self._children + 1] = Preview:new(joined:pad(ui.Pad(1, 1, 1, 1)), self._tab)
 		else
 			-- Zero-width "preview" rect prevents stale Rust-side preview rendering.
 			-- Height stays non-zero so Folder::make window size isn't clamped to 0.
