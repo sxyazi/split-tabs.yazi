@@ -9,6 +9,7 @@ A [Yazi](https://github.com/sxyazi/yazi) plugin that provides a dual-pane view b
 ## Features
 - Toggle dual-pane mode
 - Switch focus between panes
+- Toggle a full-width preview panel at the bottom
 
 ## Installation
 ```sh
@@ -27,8 +28,9 @@ Add this to your `keymap.toml`:
 ```
 [mgr]
 prepend_keymap = [
-    { on = "\\", run = "plugin split-tabs spl_toggle", desc = "Split-tabs: toggle" },
+    { on = "\\", run = "plugin split-tabs spl_toggle", desc = "Split-tabs: toggle split tabs mode" },
     { on = "<Tab>", run = "plugin split-tabs spl_switch_tab", desc = "Split-tabs: switch to the other pane" },
+    { on = "p", run = "plugin split-tabs spl_preview", desc = "Split-tabs: toggle preview pane" },
     ...
 ]
 ```
