@@ -220,7 +220,6 @@ local function activate()
 
 	apply_dual_tab_patch()
 	apply_header_patch()
-	ya.emit("app:resize", {})
 	ui.render()
 end
 
@@ -232,7 +231,6 @@ local function deactivate()
 	restore_all()
 	dp = nil
 	saved = {}
-	ya.emit("app:resize", {})
 	ui.render()
 end
 
@@ -249,7 +247,6 @@ local function spl_preview()
 		return
 	end
 	dp.preview = not dp.preview
-	ya.emit("app:resize", {})
 	ui.render()
 	if dp.preview then
 		-- Force-trigger the peek system for the current file since
@@ -264,7 +261,6 @@ local function spl_switch_tab()
 	end
 	local op = other_pane()
 	ya.emit("tab_switch", { dp.tabs[op] - 1 })
-	ya.emit("app:resize", {})
 	ui.render()
 end
 
