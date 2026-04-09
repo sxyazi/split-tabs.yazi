@@ -1,7 +1,7 @@
 --- @sync entry
 
 -- State: nil when inactive.
--- { pane=1|2, view="dual"|"zoom", tabs={tab1_idx, tab2_idx} }
+-- { pane=1|2, view="dual"|"zoom", tabs={tab1_idx, tab2_idx}, preview=bool }
 -- All indices are 1-based (matching cx.tabs indexing).
 local dp = nil
 local saved = {} -- original Tab.layout / Tab.build / Header.cwd / Tabs.height
@@ -15,6 +15,15 @@ end
 local function other_pane()
 	return active_pane() == 1 and 2 or 1
 end
+
+-- Helper component that renders arbitrary renderable elements as a child of Tab.
+-- Must have _id (ui.redraw reads it unconditionally) and _area.
+local Overlay = {}
+function Overlay:new(id, area, elements)
+	return setmetatable({ _id = id, _area = area, _elements = elements or {} }, { __index = self })
+end
+function Overlay:reflow() return {} end
+function Overlay:redraw() return self._elements end
 
 local function apply_dual_tab_patch()
 	Tab.layout = function(self)
@@ -89,8 +98,6 @@ local function apply_dual_tab_patch()
 			self._children = {
 				Current:new(c[2], tab1),
 				Current:new(c[3]:pad(ui.Pad.x(1)), tab2),
-				Marker:new(c[2], tab1.current),
-				Marker:new(c[3]:pad(ui.Pad.x(1)), tab2.current),
 			}
 		else
 			-- tab1 inactive → "parent" slot (Pad.x(1) + no cursor highlight).
@@ -98,9 +105,33 @@ local function apply_dual_tab_patch()
 			self._children = {
 				Current:new(c[1]:pad(ui.Pad.x(1)), tab1),
 				Current:new(c[2], tab2),
-				Marker:new(c[1]:pad(ui.Pad.x(1)), tab1.current),
-				Marker:new(c[2], tab2.current),
 			}
+		end
+
+		if dp.preview then
+			-- Popup preview overlay on top of the dual panes.
+			local a = self._area
+			local pw = math.floor(a.w * 0.7)
+			local ph = math.floor(a.h * 0.8)
+			local px = a.x + math.floor((a.w - pw) / 2)
+			local py = a.y + math.floor((a.h - ph) / 2)
+			local popup = ui.Rect { x = px, y = py, w = pw, h = ph }
+			local inner = popup:pad(ui.Pad(1, 1, 1, 1))
+
+			self._children[#self._children + 1] = Overlay:new("overlay", popup, {
+				ui.Clear(popup),
+				ui.Border(ui.Edge.ALL)
+					:type(ui.Border.ROUNDED)
+					:area(popup)
+					:title(ui.Line("Preview")),
+			})
+			self._children[#self._children + 1] = Preview:new(inner, self._tab)
+		else
+			-- Set LAYOUT.preview to a zero-width rect so the Rust mgr::Preview
+			-- widget won't render stale peek content from a previously open popup.
+			-- Height must stay non-zero because Folder::make uses it for window size.
+			self._children[#self._children + 1] = Overlay:new("preview",
+				ui.Rect { x = 0, y = 0, w = 0, h = self._area.h }, {})
 		end
 	end
 end
@@ -185,11 +216,12 @@ local function activate()
 		ya.emit("tab_create", { cx.active.current.cwd })
 	end
 
-	dp = { pane = 1, view = "dual", tabs = { cur, tab2_idx }, creating = n < 2 }
+	dp = { pane = 1, view = "dual", tabs = { cur, tab2_idx }, creating = n < 2, preview = false }
 
 	apply_dual_tab_patch()
 	apply_header_patch()
 	ya.emit("app:resize", {})
+	ui.render()
 end
 
 local function deactivate()
@@ -201,6 +233,7 @@ local function deactivate()
 	dp = nil
 	saved = {}
 	ya.emit("app:resize", {})
+	ui.render()
 end
 
 local function spl_toggle()
@@ -211,6 +244,20 @@ local function spl_toggle()
 	end
 end
 
+local function spl_preview()
+	if not dp then
+		return
+	end
+	dp.preview = not dp.preview
+	ya.emit("app:resize", {})
+	ui.render()
+	if dp.preview then
+		-- Force-trigger the peek system for the current file since
+		-- it only auto-triggers on file change, not on area change.
+		ya.emit("peek", { 0 })
+	end
+end
+
 local function spl_switch_tab()
 	if not dp then
 		return
@@ -218,6 +265,7 @@ local function spl_switch_tab()
 	local op = other_pane()
 	ya.emit("tab_switch", { dp.tabs[op] - 1 })
 	ya.emit("app:resize", {})
+	ui.render()
 end
 
 local function entry(st, job)
@@ -232,6 +280,8 @@ local function entry(st, job)
 		spl_toggle()
 	elseif act == "spl_switch_tab" then
 		spl_switch_tab()
+	elseif act == "spl_preview" then
+		spl_preview()
 	end
 end
 
