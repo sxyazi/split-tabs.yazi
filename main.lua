@@ -48,7 +48,23 @@ local function apply_dual_tab_patch()
 
 		-- Keep dp.pane in sync with the real active tab.
 		local pane = active_pane()
-        dp.pane = pane
+		dp.pane = pane
+
+		-- When preview is active, split vertically first: top for panes, bottom for preview.
+		local pane_area = self._area
+		if dp.preview then
+			local vsplit = ui.Layout()
+				:direction(ui.Layout.VERTICAL)
+				:constraints({
+					ui.Constraint.Fill(1),
+					ui.Constraint.Fill(1),
+				})
+				:split(self._area)
+			pane_area = vsplit[1]
+			dp.preview_area = vsplit[2]
+		else
+			dp.preview_area = nil
+		end
 
 		if pane == 1 then
 			-- Pane 1 active: hide parent, split current(fill)/preview(fill)
@@ -59,7 +75,7 @@ local function apply_dual_tab_patch()
 					ui.Constraint.Fill(1),
 					ui.Constraint.Fill(1),
 				})
-				:split(self._area)
+				:split(pane_area)
 		else
 			-- Pane 2 active: split parent(fill)/current(fill), hide preview
 			self._chunks = ui.Layout()
@@ -69,14 +85,25 @@ local function apply_dual_tab_patch()
 					ui.Constraint.Fill(1),
 					ui.Constraint.Length(0),
 				})
-				:split(self._area)
+				:split(pane_area)
 		end
 	end
 
 	Tab.build = function(self)
 		-- Call the saved build first (may be full-border or the stock build).
 		-- This draws any borders/base elements and pads self._chunks.
+		-- When preview panel is active, temporarily shrink self._area to the
+		-- pane region so borders don't bleed into the preview area below.
+		local orig_area = self._area
+		if dp.preview and dp.preview_area then
+			local pa = dp.preview_area
+			self._area = ui.Rect {
+				x = orig_area.x, y = orig_area.y,
+				w = orig_area.w, h = pa.y - orig_area.y,
+			}
+		end
 		saved.tab_build(self)
+		self._area = orig_area
 
 		local c = self._chunks -- use (possibly padded) chunks from the above call
 		local tab1 = cx.tabs[dp.tabs[1]]
@@ -98,6 +125,8 @@ local function apply_dual_tab_patch()
 			self._children = {
 				Current:new(c[2], tab1),
 				Current:new(c[3]:pad(ui.Pad.x(1)), tab2),
+				Marker:new(c[2], tab1.current),
+				Marker:new(c[3]:pad(ui.Pad.x(1)), tab2.current),
 			}
 		else
 			-- tab1 inactive → "parent" slot (Pad.x(1) + no cursor highlight).
@@ -105,30 +134,21 @@ local function apply_dual_tab_patch()
 			self._children = {
 				Current:new(c[1]:pad(ui.Pad.x(1)), tab1),
 				Current:new(c[2], tab2),
+				Marker:new(c[1]:pad(ui.Pad.x(1)), tab1.current),
+				Marker:new(c[2], tab2.current),
 			}
 		end
 
-		if dp.preview then
-			-- Popup preview overlay on top of the dual panes.
-			local a = self._area
-			local pw = math.floor(a.w * 0.7)
-			local ph = math.floor(a.h * 0.8)
-			local px = a.x + math.floor((a.w - pw) / 2)
-			local py = a.y + math.floor((a.h - ph) / 2)
-			local popup = ui.Rect { x = px, y = py, w = pw, h = ph }
-			local inner = popup:pad(ui.Pad(1, 1, 1, 1))
-
-			self._children[#self._children + 1] = Overlay:new("overlay", popup, {
-				ui.Clear(popup),
-				ui.Border(ui.Edge.ALL)
-					:type(ui.Border.ROUNDED)
-					:area(popup)
-					:title(ui.Line("Preview")),
+		if dp.preview and dp.preview_area then
+			-- Full-width preview panel at the bottom with a border.
+			local pa = dp.preview_area
+			self._children[#self._children + 1] = Overlay:new("border", pa, {
+				ui.Border(ui.Edge.ALL):area(pa),
 			})
-			self._children[#self._children + 1] = Preview:new(inner, self._tab)
+			self._children[#self._children + 1] = Preview:new(pa:pad(ui.Pad(1, 1, 1, 1)), self._tab)
 		else
 			-- Set LAYOUT.preview to a zero-width rect so the Rust mgr::Preview
-			-- widget won't render stale peek content from a previously open popup.
+			-- widget won't render stale peek content from a previously closed panel.
 			-- Height must stay non-zero because Folder::make uses it for window size.
 			self._children[#self._children + 1] = Overlay:new("preview",
 				ui.Rect { x = 0, y = 0, w = 0, h = self._area.h }, {})
