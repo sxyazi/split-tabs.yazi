@@ -30,6 +30,19 @@ if not Marker.reflow then
 	Marker.reflow = function() return {} end
 end
 
+-- Wrapper that suppresses cursor highlight during redraw via a flag on dp.
+local Inactive = {}
+function Inactive:new(component)
+	return setmetatable({ _id = component._id, _area = component._area, _inner = component }, { __index = self })
+end
+function Inactive:reflow() return self._inner:reflow() end
+function Inactive:redraw()
+	dp._no_cursor = true
+	local elements = self._inner:redraw()
+	dp._no_cursor = nil
+	return elements
+end
+
 local function apply_dual_tab_patch()
 	Tab.layout = function(self)
 		-- Enforce 2-tab minimum: create a companion tab if we have only one.
@@ -125,19 +138,17 @@ local function apply_dual_tab_patch()
 		--   parent slot → Pad.x(1),  current slot → none,  preview slot → Pad.x(1)
 		-- This keeps content inside the borders drawn by full-border (or similar).
 		if dp.pane == 1 then
-			-- tab1 active → "current" slot (no extra padding).
-			-- tab2 inactive → "preview" slot (Pad.x(1) + no cursor highlight).
+			-- tab1 active, tab2 inactive (no cursor highlight).
 			self._children = {
 				Current:new(c[2], tab1),
-				Current:new(c[3]:pad(ui.Pad.x(1)), tab2),
+				Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
 				Marker:new(c[2], tab1.current),
 				Marker:new(c[3]:pad(ui.Pad.x(1)), tab2.current),
 			}
 		else
-			-- tab1 inactive → "parent" slot (Pad.x(1) + no cursor highlight).
-			-- tab2 active → "current" slot (no extra padding).
+			-- tab1 inactive (no cursor highlight), tab2 active.
 			self._children = {
-				Current:new(c[1]:pad(ui.Pad.x(1)), tab1),
+				Inactive:new(Current:new(c[1]:pad(ui.Pad.x(1)), tab1)),
 				Current:new(c[2], tab2),
 				Marker:new(c[1]:pad(ui.Pad.x(1)), tab1.current),
 				Marker:new(c[2], tab2.current),
@@ -208,10 +219,11 @@ local function apply_header_patch()
 end
 
 local function restore_all()
-	Tab.layout  = saved.tab_layout
-	Tab.build   = saved.tab_build
-	Header.cwd  = saved.header_cwd
-	Tabs.height = saved.tabs_height
+	Tab.layout   = saved.tab_layout
+	Tab.build    = saved.tab_build
+	Header.cwd   = saved.header_cwd
+	Tabs.height  = saved.tabs_height
+	Entity.style = saved.entity_style
 end
 
 local function activate()
@@ -220,10 +232,19 @@ local function activate()
 	end
 
 	-- Persist original methods before patching.
-	saved.tab_layout  = Tab.layout
-	saved.tab_build   = Tab.build
-	saved.header_cwd  = Header.cwd
-	saved.tabs_height = Tabs.height
+	saved.tab_layout   = Tab.layout
+	saved.tab_build    = Tab.build
+	saved.header_cwd   = Header.cwd
+	saved.tabs_height  = Tabs.height
+	saved.entity_style = Entity.style
+
+	-- No cursor highlight in the inactive pane.
+	Entity.style = function(self)
+		if dp and dp._no_cursor then
+			return self._file:style() or ui.Style()
+		end
+		return saved.entity_style(self)
+	end
 
 	-- Hide the tab bar while dual-pane is active.
 	Tabs.height = function() return 0 end
