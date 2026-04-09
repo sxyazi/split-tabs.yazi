@@ -1,13 +1,9 @@
 --- @sync entry
 
--- State: nil when inactive.
--- { pane=1|2, view="dual"|"zoom", tabs={tab1_idx, tab2_idx}, preview=bool }
--- All indices are 1-based (matching cx.tabs indexing).
+-- nil when inactive; holds all dual-pane state when active.
 local dp = nil
-local saved = {} -- original Tab.layout / Tab.build / Header.cwd / Tabs.height
+local saved = {}
 
--- Derive the active pane from the real Yazi tab index.
--- Returns 1 if pane 1 is currently focused, 2 otherwise.
 local function active_pane()
 	return cx.tabs.idx == dp.tabs[2] and 2 or 1
 end
@@ -16,8 +12,7 @@ local function other_pane()
 	return active_pane() == 1 and 2 or 1
 end
 
--- Helper component that renders arbitrary renderable elements as a child of Tab.
--- Must have _id (ui.redraw reads it unconditionally) and _area.
+-- Minimal component: renders static elements. Needs _id/_area for ui.redraw().
 local Overlay = {}
 function Overlay:new(id, area, elements)
 	return setmetatable({ _id = id, _area = area, _elements = elements or {} }, { __index = self })
@@ -25,12 +20,12 @@ end
 function Overlay:reflow() return {} end
 function Overlay:redraw() return self._elements end
 
--- Marker has no reflow() method; add one so Tab:reflow() doesn't error on resize.
+-- Polyfill: Marker lacks reflow(), which crashes Tab:reflow() on resize.
 if not Marker.reflow then
 	Marker.reflow = function() return {} end
 end
 
--- Wrapper that suppresses cursor highlight during redraw via a flag on dp.
+-- Wraps a component to suppress cursor highlight via dp._no_cursor flag.
 local Inactive = {}
 function Inactive:new(component)
 	return setmetatable({ _id = component._id, _area = component._area, _inner = component }, { __index = self })
@@ -45,7 +40,6 @@ end
 
 local function apply_dual_tab_patch()
 	Tab.layout = function(self)
-		-- Enforce 2-tab minimum: create a companion tab if we have only one.
 		if #cx.tabs < 2 and not dp.creating then
 			dp.creating = true
 			ya.emit("tab_create", { cx.active.current.cwd })
@@ -54,21 +48,18 @@ local function apply_dual_tab_patch()
 			dp.creating = nil
 		end
 
-		-- Enforce 2-tab limit: close any tab not belonging to our two panes.
 		if #cx.tabs > 2 then
 			for i = #cx.tabs, 1, -1 do
 				if i ~= dp.tabs[1] and i ~= dp.tabs[2] then
 					ya.emit("tab_close", { i - 1 }) -- 0-based
-					break -- close one per frame; next frame handles any remaining
+					break
 				end
 			end
 		end
 
-		-- Keep dp.pane in sync with the real active tab.
-		local pane = active_pane()
-		dp.pane = pane
+		dp.pane = active_pane()
 
-		-- When preview is active, split vertically first: top for panes, bottom for preview.
+		-- Preview on: split vertically first, then horizontally for panes.
 		local pane_area = self._area
 		if dp.preview then
 			local vsplit = ui.Layout()
@@ -84,8 +75,8 @@ local function apply_dual_tab_patch()
 			dp.preview_area = nil
 		end
 
-		if pane == 1 then
-			-- Pane 1 active: hide parent, split current(fill)/preview(fill)
+		-- Active pane uses the "current" slot; inactive gets a zero-width slot.
+		if dp.pane == 1 then
 			self._chunks = ui.Layout()
 				:direction(ui.Layout.HORIZONTAL)
 				:constraints({
@@ -95,7 +86,6 @@ local function apply_dual_tab_patch()
 				})
 				:split(pane_area)
 		else
-			-- Pane 2 active: split parent(fill)/current(fill), hide preview
 			self._chunks = ui.Layout()
 				:direction(ui.Layout.HORIZONTAL)
 				:constraints({
@@ -108,10 +98,8 @@ local function apply_dual_tab_patch()
 	end
 
 	Tab.build = function(self)
-		-- Call the saved build first (may be full-border or the stock build).
-		-- This draws any borders/base elements and pads self._chunks.
-		-- When preview panel is active, temporarily shrink self._area to the
-		-- pane region so borders don't bleed into the preview area below.
+		-- Shrink self._area before calling the original build so that
+		-- borders (e.g. full-border) don't bleed into the preview panel.
 		local orig_area = self._area
 		if dp.preview and dp.preview_area then
 			local pa = dp.preview_area
@@ -123,22 +111,17 @@ local function apply_dual_tab_patch()
 		saved.tab_build(self)
 		self._area = orig_area
 
-		local c = self._chunks -- use (possibly padded) chunks from the above call
+		local c = self._chunks
 		local tab1 = cx.tabs[dp.tabs[1]]
 		local tab2 = cx.tabs[dp.tabs[2]]
 
-		-- Guard: second tab might not exist yet right after tab_create.
 		if not tab1 or not tab2 then
 			self._children = {}
 			return
 		end
 
-		-- Replace whatever children were created by the saved build.
-		-- Apply the same per-slot inset padding the stock Tab.build would use:
-		--   parent slot → Pad.x(1),  current slot → none,  preview slot → Pad.x(1)
-		-- This keeps content inside the borders drawn by full-border (or similar).
+		-- Pad.x(1) on inactive slot keeps content inside full-border borders.
 		if dp.pane == 1 then
-			-- tab1 active, tab2 inactive (no cursor highlight).
 			self._children = {
 				Current:new(c[2], tab1),
 				Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
@@ -146,7 +129,6 @@ local function apply_dual_tab_patch()
 				Marker:new(c[3]:pad(ui.Pad.x(1)), tab2.current),
 			}
 		else
-			-- tab1 inactive (no cursor highlight), tab2 active.
 			self._children = {
 				Inactive:new(Current:new(c[1]:pad(ui.Pad.x(1)), tab1)),
 				Current:new(c[2], tab2),
@@ -156,16 +138,14 @@ local function apply_dual_tab_patch()
 		end
 
 		if dp.preview and dp.preview_area then
-			-- Full-width preview panel at the bottom with a border.
 			local pa = dp.preview_area
 			self._children[#self._children + 1] = Overlay:new("border", pa, {
 				ui.Border(ui.Edge.ALL):area(pa),
 			})
 			self._children[#self._children + 1] = Preview:new(pa:pad(ui.Pad(1, 1, 1, 1)), self._tab)
 		else
-			-- Set LAYOUT.preview to a zero-width rect so the Rust mgr::Preview
-			-- widget won't render stale peek content from a previously closed panel.
-			-- Height must stay non-zero because Folder::make uses it for window size.
+			-- Zero-width "preview" rect prevents stale Rust-side preview rendering.
+			-- Height stays non-zero so Folder::make window size isn't clamped to 0.
 			self._children[#self._children + 1] = Overlay:new("preview",
 				ui.Rect { x = 0, y = 0, w = 0, h = self._area.h }, {})
 		end
@@ -181,18 +161,14 @@ local function apply_header_patch()
 		local tab2 = dp.tabs[2] and cx.tabs[dp.tabs[2]]
 		local pane = dp.pane or 1
 
-		if not tab1 then
-			return ""
-		end
+		if not tab1 then return "" end
 
-		-- Only one pane ready yet.
 		if not tab2 then
 			local s = ya.readable_path(tostring(tab1.current.cwd))
 			return ui.Span(ui.truncate(s, { max = w, rtl = true })):style(th.tabs.active)
 		end
 
-		-- Left path: truncate to `mid`, then space-pad to exactly `mid` columns
-		-- so the " " separator always lands at the pane split point.
+		-- Left path: pad to exactly `mid` columns so the separator aligns with the pane split.
 		local p1 = ya.readable_path(tostring(tab1.current.cwd))
 		p1 = ui.truncate(p1, { max = mid, rtl = true })
 		local pad = mid - #p1
@@ -200,13 +176,10 @@ local function apply_header_patch()
 			p1 = p1 .. string.rep(" ", pad)
 		end
 
-		-- Right path: space from mid+1 to right edge, minus the right widget.
 		local right_avail = math.max(0, w - mid - 1 - (self._right_width or 0)) - 4
 		local p2 = ya.readable_path(tostring(tab2.current.cwd))
 		p2 = ui.truncate(p2, { max = right_avail, rtl = true })
 
-		-- Active path uses the full active style (background highlight).
-		-- Inactive path uses the inactive foreground only, background reset to transparent.
 		local s_active   = th.tabs.active:patch(ui.Style():bg("reset"))
 		local s_inactive = th.tabs.inactive:patch(ui.Style():bg("reset"))
 
@@ -227,18 +200,14 @@ local function restore_all()
 end
 
 local function activate()
-	if dp then
-		return
-	end
+	if dp then return end
 
-	-- Persist original methods before patching.
 	saved.tab_layout   = Tab.layout
 	saved.tab_build    = Tab.build
 	saved.header_cwd   = Header.cwd
 	saved.tabs_height  = Tabs.height
 	saved.entity_style = Entity.style
 
-	-- No cursor highlight in the inactive pane.
 	Entity.style = function(self)
 		if dp and dp._no_cursor then
 			return self._file:style() or ui.Style()
@@ -246,18 +215,15 @@ local function activate()
 		return saved.entity_style(self)
 	end
 
-	-- Hide the tab bar while dual-pane is active.
 	Tabs.height = function() return 0 end
 
 	local n = #cx.tabs
-	local cur = cx.tabs.idx -- 1-based
+	local cur = cx.tabs.idx
 	local tab2_idx
 
 	if n >= 2 then
-		-- Use the next tab (wraps to 1 if on the last tab).
 		tab2_idx = (cur < n) and (cur + 1) or 1
 	else
-		-- Create a companion tab at the same directory.
 		tab2_idx = 2
 		ya.emit("tab_create", { cx.active.current.cwd })
 	end
@@ -270,9 +236,7 @@ local function activate()
 end
 
 local function deactivate()
-	if not dp then
-		return
-	end
+	if not dp then return end
 	ya.emit("tab_close", { other_pane() - 1 })
 	restore_all()
 	dp = nil
@@ -281,47 +245,30 @@ local function deactivate()
 end
 
 local function spl_toggle()
-	if dp then
-		deactivate()
-	else
-		activate()
-	end
+	if dp then deactivate() else activate() end
 end
 
 local function spl_preview()
-	if not dp then
-		return
-	end
+	if not dp then return end
 	dp.preview = not dp.preview
 	ui.render()
 	if dp.preview then
-		-- Force-trigger the peek system for the current file since
-		-- it only auto-triggers on file change, not on area change.
 		ya.emit("peek", { 0 })
 	else
-		-- Force preview reset to clear terminal protocol images (kitty/sixel).
-		-- A different skip value bypasses the "same file" check in peek.rs,
-		-- ensuring preview.reset() runs and calls adapter.image_hide().
+		-- Different skip value forces preview.reset() which clears protocol images.
 		ya.emit("peek", { 99999 })
 	end
 end
 
 local function spl_switch_tab()
-	if not dp then
-		return
-	end
-	local op = other_pane()
-	ya.emit("tab_switch", { dp.tabs[op] - 1 })
+	if not dp then return end
+	ya.emit("tab_switch", { dp.tabs[other_pane()] - 1 })
 	ui.render()
 end
 
 local function entry(st, job)
 	job = type(job) == "string" and { args = { job } } or job
 	local act = job.args[1]
-	local args = {}
-	for i = 2, #job.args do
-		args[#args + 1] = job.args[i]
-	end
 
 	if act == "spl_toggle" then
 		spl_toggle()
