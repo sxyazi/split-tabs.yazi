@@ -25,6 +25,11 @@ end
 function Overlay:reflow() return {} end
 function Overlay:redraw() return self._elements end
 
+-- Marker has no reflow() method; add one so Tab:reflow() doesn't error on resize.
+if not Marker.reflow then
+	Marker.reflow = function() return {} end
+end
+
 local function apply_dual_tab_patch()
 	Tab.layout = function(self)
 		-- Enforce 2-tab minimum: create a companion tab if we have only one.
