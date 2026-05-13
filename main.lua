@@ -127,7 +127,7 @@ local function apply_dual_tab_patch()
 				Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
 				Marker:new(c[2], tab1.current),
 				Marker:new(c[3], tab2.current),
-				Rails:new(c, self._tab),
+				Rail:new("center", ui.Rect { x = c[2].right, y = c[2].y, w = 1, h = c[2].h }, c),
 			}
 		else
 			self._children = {
@@ -135,7 +135,7 @@ local function apply_dual_tab_patch()
 				Current:new(c[2]:pad(ui.Pad.x(1)), tab2),
 				Marker:new(c[1], tab1.current),
 				Marker:new(c[2], tab2.current),
-				Rails:new(c, self._tab),
+				Rail:new("center", ui.Rect { x = c[2].x, y = c[2].y, w = 1, h = c[2].h }, c),
 			}
 		end
 
