@@ -123,17 +123,19 @@ local function apply_dual_tab_patch()
 		-- Pad.x(1) on inactive slot keeps content inside full-border borders.
 		if dp.pane == 1 then
 			self._children = {
-				Current:new(c[2], tab1),
+				Current:new(c[2]:pad(ui.Pad.x(1)), tab1),
 				Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
 				Marker:new(c[2], tab1.current),
-				Marker:new(c[3]:pad(ui.Pad.x(1)), tab2.current),
+				Marker:new(c[3], tab2.current),
+				Rails:new(c, self._tab),
 			}
 		else
 			self._children = {
 				Inactive:new(Current:new(c[1]:pad(ui.Pad.x(1)), tab1)),
-				Current:new(c[2], tab2),
-				Marker:new(c[1]:pad(ui.Pad.x(1)), tab1.current),
+				Current:new(c[2]:pad(ui.Pad.x(1)), tab2),
+				Marker:new(c[1], tab1.current),
 				Marker:new(c[2], tab2.current),
+				Rails:new(c, self._tab),
 			}
 		end
 
@@ -142,7 +144,7 @@ local function apply_dual_tab_patch()
 			local pa = dp.preview_area
 			local joined = ui.Rect { x = pa.x, y = pa.y - 1, w = pa.w, h = pa.h + 1 }
 			self._children[#self._children + 1] = Overlay:new("border", joined, {
-				ui.Border(ui.Edge.LEFT + ui.Edge.RIGHT + ui.Edge.BOTTOM):area(joined),
+				ui.Border(ui.Edge.ALL):area(joined),
 			})
 			self._children[#self._children + 1] = Preview:new(joined:pad(ui.Pad(1, 1, 1, 1)), self._tab)
 		else
