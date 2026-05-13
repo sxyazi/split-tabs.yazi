@@ -25,14 +25,17 @@ if not Marker.reflow then
 	Marker.reflow = function() return {} end
 end
 
--- Wraps a component to suppress cursor highlight via dp._no_cursor flag.
-local Inactive = {}
-function Inactive:new(component)
-	return setmetatable({ _id = component._id, _area = component._area, _inner = component }, { __index = self })
+-- Wraps a Current to suppress cursor highlight via dp._no_cursor flag.
+local Pane = {}
+function Pane:new(area, tab, active)
+	return setmetatable(
+		{ _id = "current", _area = area, _active = active, _inner = Current:new(area, tab) },
+		{ __index = self }
+	)
 end
-function Inactive:reflow() return self._inner:reflow() end
-function Inactive:redraw()
-	dp._no_cursor = true
+function Pane:reflow() return self._inner:reflow() end
+function Pane:redraw()
+	dp._no_cursor = not self._active
 	local elements = self._inner:redraw()
 	dp._no_cursor = nil
 	return elements
@@ -76,40 +79,18 @@ local function apply_dual_tab_patch()
 		end
 
 		-- Active pane uses the "current" slot; inactive gets a zero-width slot.
-		if dp.pane == 1 then
-			self._chunks = ui.Layout()
-				:direction(ui.Layout.HORIZONTAL)
-				:constraints({
-					ui.Constraint.Length(0),
-					ui.Constraint.Fill(1),
-					ui.Constraint.Fill(1),
-				})
-				:split(pane_area)
-		else
-			self._chunks = ui.Layout()
-				:direction(ui.Layout.HORIZONTAL)
-				:constraints({
-					ui.Constraint.Fill(1),
-					ui.Constraint.Fill(1),
-					ui.Constraint.Length(0),
-				})
-				:split(pane_area)
-		end
+		self._chunks = ui.Layout()
+			:direction(ui.Layout.HORIZONTAL)
+			:constraints({
+				ui.Constraint.Fill(1),
+				ui.Constraint.Fill(1),
+				ui.Constraint.Length(0),
+			})
+			:split(pane_area)
 	end
 
-	Tab.build = function(self)
-		-- Shrink self._area before calling the original build so that
-		-- borders (e.g. full-border) don't bleed into the preview panel.
-		local orig_area = self._area
-		if dp.preview and dp.preview_area then
-			local pa = dp.preview_area
-			self._area = ui.Rect {
-				x = orig_area.x, y = orig_area.y,
-				w = orig_area.w, h = pa.y - orig_area.y,
-			}
-		end
-		saved.tab_build(self)
-		self._area = orig_area
+	Tab.build = function(self, ...)
+		saved.tab_build(self, ...)
 
 		local c = self._chunks
 		local tab1 = cx.tabs[dp.tabs[1]]
@@ -120,32 +101,15 @@ local function apply_dual_tab_patch()
 			return
 		end
 
-		if dp.pane == 1 then
-			self._children = {
-			    Current:new(c[2]:pad(ui.Pad.x(1)), tab1),
-			    Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
+		self._children = {
+			Pane:new(c[1]:pad(ui.Pad(0, 0, 0, 1)), tab1, dp.pane == 1),
+			Pane:new(c[2]:pad(ui.Pad.x(1)), tab2, dp.pane == 2),
 
-				Marker:new(c[2], tab1.current),
+			Marker:new(c[1], tab1.current),
 
-				-- The custom rail works better than a standard but full-border plugin depends on the standard logic,
-				-- so, we must use standard jumping rails
-				-- Rail:new("center", ui.Rect { x = c[2].right, y = c[2].y, w = 1, h = c[2].h }, c),
-				Rails:new(c, self._tab),
-
-				-- and we have to fix position of markers to be above the standard rail between "current" and "preview" pannels
-				Marker:new(ui.Rect { x = c[3].x - 1, y = c[3].y, w = 1, h = c[3].h }, tab2.current),
-			}
-		else
-			self._children = {
-				Inactive:new(Current:new(c[1]:pad(ui.Pad.x(1)), tab1)),
-				Current:new(c[2]:pad(ui.Pad.x(1)), tab2),
-
-				Marker:new(c[1], tab1.current),
-
-				Rails:new(c, self._tab), -- draw a rail between "parent" and "current" pannels
-				Marker:new(c[2], tab2.current),
-			}
-		end
+			Rails:new(c, self._tab), -- draw a rail between "parent" and "current" panels
+			Marker:new(c[2], tab2.current),
+		}
 
 		if dp.preview and dp.preview_area then
 			-- Overlap preview 1 row up to share the pane's bottom border line.
@@ -192,7 +156,7 @@ local function apply_header_patch()
 		local p2 = ya.readable_path(tostring(tab2.current.cwd))
 		p2 = ui.truncate(p2, { max = right_avail, rtl = true })
 
-		local s_active   = th.tabs.active:patch(ui.Style():bg("reset"))
+		local s_active = th.tabs.active:patch(ui.Style():bg("reset"))
 		local s_inactive = th.tabs.inactive:patch(ui.Style():bg("reset"))
 
 		return ui.Line {
@@ -204,20 +168,20 @@ local function apply_header_patch()
 end
 
 local function restore_all()
-	Tab.layout   = saved.tab_layout
-	Tab.build    = saved.tab_build
-	Header.cwd   = saved.header_cwd
-	Tabs.height  = saved.tabs_height
+	Tab.layout = saved.tab_layout
+	Tab.build = saved.tab_build
+	Header.cwd = saved.header_cwd
+	Tabs.height = saved.tabs_height
 	Entity.style = saved.entity_style
 end
 
 local function activate()
 	if dp then return end
 
-	saved.tab_layout   = Tab.layout
-	saved.tab_build    = Tab.build
-	saved.header_cwd   = Header.cwd
-	saved.tabs_height  = Tabs.height
+	saved.tab_layout = Tab.layout
+	saved.tab_build = Tab.build
+	saved.header_cwd = Header.cwd
+	saved.tabs_height = Tabs.height
 	saved.entity_style = Entity.style
 
 	Entity.style = function(self)
