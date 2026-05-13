@@ -120,22 +120,30 @@ local function apply_dual_tab_patch()
 			return
 		end
 
-		-- Pad.x(1) on inactive slot keeps content inside full-border borders.
 		if dp.pane == 1 then
 			self._children = {
-				Current:new(c[2]:pad(ui.Pad.x(1)), tab1),
-				Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
+			    Current:new(c[2]:pad(ui.Pad.x(1)), tab1),
+			    Inactive:new(Current:new(c[3]:pad(ui.Pad.x(1)), tab2)),
+
 				Marker:new(c[2], tab1.current),
-				Marker:new(c[3], tab2.current),
-				Rail:new("center", ui.Rect { x = c[2].right, y = c[2].y, w = 1, h = c[2].h }, c),
+
+				-- The custom rail works better than a standard but full-border plugin depends on the standard logic,
+				-- so, we must use standard jumping rails
+				-- Rail:new("center", ui.Rect { x = c[2].right, y = c[2].y, w = 1, h = c[2].h }, c),
+				Rails:new(c, self._tab),
+
+				-- and we have to fix position of markers to be above the standard rail between "current" and "preview" pannels
+				Marker:new(ui.Rect { x = c[3].x - 1, y = c[3].y, w = 1, h = c[3].h }, tab2.current),
 			}
 		else
 			self._children = {
 				Inactive:new(Current:new(c[1]:pad(ui.Pad.x(1)), tab1)),
 				Current:new(c[2]:pad(ui.Pad.x(1)), tab2),
+
 				Marker:new(c[1], tab1.current),
+
+				Rails:new(c, self._tab), -- draw a rail between "parent" and "current" pannels
 				Marker:new(c[2], tab2.current),
-				Rail:new("center", ui.Rect { x = c[2].x, y = c[2].y, w = 1, h = c[2].h }, c),
 			}
 		end
 
