@@ -30,7 +30,7 @@ end
 local Pane = {}
 function Pane:new(area, tab, active)
 	return setmetatable(
-		{ _id = "current", _area = area, _active = active, _inner = Current:new(area, tab) },
+		{ _id = active and "current" or "my-current", _area = area, _active = active, _inner = Current:new(area, tab) },
 		{ __index = self }
 	)
 end
