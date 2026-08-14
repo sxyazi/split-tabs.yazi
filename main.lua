@@ -185,6 +185,14 @@ local function activate()
 
     ps.sub("ind-watch", function(args)
         args.files = { cx.tabs[dp.tabs[1]].current.file, cx.tabs[dp.tabs[2]].current.file }
+
+        -- If the preview pane is active and the hovered entity is a directory,
+        -- add it to the watch list as well so that the directory can be loaded when absent.
+        local hovered = cx.tabs[active_pane()].current.hovered
+        if dp.preview and hovered and hovered.cha.is_dir then
+                args.files[#args.files + 1] = hovered
+        end
+
         return args
     end)
 
