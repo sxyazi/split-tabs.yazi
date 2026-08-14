@@ -189,7 +189,7 @@ local function activate()
     end)
 
     ps.sub("relay-update-files", function(args)
-        args.tabs = { dp.tabs[1], dp.tabs[2] }
+        args.tabs = { cx.tabs[dp.tabs[1]].id, cx.tabs[dp.tabs[2]].id }
         return args
     end)
 
