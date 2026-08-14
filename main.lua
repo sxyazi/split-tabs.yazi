@@ -183,6 +183,16 @@ end
 local function activate()
     if dp then return end
 
+	ps.sub("ind-watch", function(args)
+		args.files = { cx.tabs[dp.tabs[1]].current.file, cx.tabs[dp.tabs[2]].current.file }
+		return args
+	end)
+
+	ps.sub("relay-update-files", function(args)
+		args.tabs = { dp.tabs[1], dp.tabs[2] }
+		return args
+	end)
+
     saved.tab_layout = Tab.layout
     saved.tab_build = Tab.build
     saved.header_cwd = Header.cwd
@@ -218,6 +228,8 @@ end
 
 local function deactivate()
     if not dp then return end
+	ps.unsub("ind-watch")
+	ps.unsub("relay-update-files")
     ya.emit("tab_close", { other_pane() - 1 })
     restore_all()
     dp = nil
